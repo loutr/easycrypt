@@ -1407,25 +1407,12 @@ and generalize_ctheory
   if cth.cth_mode = `Abstract && cth.cth_loca = `Local then
     add_clear genenv (`Th path)
   else
-    let compiled =
-      let genenv =
-        let scenv =
-          enter_theory
-            name `Global cth.cth_mode
-            genenv.tg_env
-        in
-        { genenv with tg_env = scenv }
-      in
+    let scenv = enter_theory name `Global cth.cth_mode genenv.tg_env in
+    let genenv_tmp = List.fold_left
+      (fun x -> generalize_th_item x path)
+      { genenv with tg_env = scenv } cth.cth_items in
 
-      let genenv =
-        List.fold_left (fun genenv item ->
-          generalize_th_item genenv path item
-        ) genenv cth.cth_items in
-
-      let _, compiled, _ = exit_theory genenv.tg_env in
-
-      compiled
-    in        
+    let _, compiled, _ = exit_theory genenv_tmp.tg_env in
 
     match compiled with
     | None ->
