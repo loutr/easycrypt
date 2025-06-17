@@ -598,8 +598,10 @@ type trans_info =
 
 (* -------------------------------------------------------------------- *)
 type eager_info =
-  | LE_done of psymbol
-  | LE_todo of psymbol * pstmt * pstmt * pformula * pformula
+  | LE_done of psymbol (** An identifier referring to a known proof *)
+  | LE_todo of pstmt * pformula doption
+      (** A description of the corresponding eager goal, for a given swapping
+          statement, guided by one or two formulas. *)
 
 (* -------------------------------------------------------------------- *)
 type bdh_split =
@@ -774,13 +776,12 @@ type phltactic =
   | Pprocrewrite   of side option * pcodepos * prrewrite
 
     (* Eager *)
-  | Peager_seq       of (eager_info * pcodepos1 pair * pformula)
+  | Peager_seq       of (pcodepos1 pair * pstmt * pformula doption)
   | Peager_if
-  | Peager_while     of (eager_info)
+  | Peager_while     of pformula
   | Peager_fun_def
-  | Peager_fun_abs   of (eager_info * pformula)
-  | Peager_call      of (call_info gppterm)
-  | Peager           of (eager_info * pformula)
+  | Peager_fun_abs   of pformula
+  | Peager_call      of call_info gppterm
 
     (* Relation between logic *)
   | Pbd_equiv of (side * pformula * pformula)
