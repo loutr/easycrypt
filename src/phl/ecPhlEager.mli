@@ -91,9 +91,9 @@ val process_fun_abs : pformula -> backward
   (d) S ~ S : I ==> I
   for each oracles o o':
       o and o' do not modify (glob A)
-  (e) S, o ~ o', S : I /\ ={params} ==> I /\ ={res}
-  (f) o' ~ o' : Eq ==> I
-  (g) o ~ o : I ==> I
+  (e) S, o ~ o', S : I /\ ={o'.params} ==> I /\ ={res}
+  (f) o' ~ o' : Eq ==> I /\ ={res}
+  (g) o ~ o : I /\ ={o.params} ==> I /\ ={res}
  --------------------------------------------------------
   S, A.f{o} ~ A.f(o'), S
     : I /\ ={glob A, A.f.params} ==> I /\ ={glob A, res}
