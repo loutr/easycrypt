@@ -597,13 +597,6 @@ type trans_info =
   trans_kind * trans_formula
 
 (* -------------------------------------------------------------------- *)
-type eager_info =
-  | LE_done of psymbol (** An identifier referring to a known proof *)
-  | LE_todo of pstmt * pformula doption
-      (** A description of the corresponding eager goal, for a given swapping
-          statement, guided by one or two formulas. *)
-
-(* -------------------------------------------------------------------- *)
 type bdh_split =
   | BDH_split_bop     of pformula * pformula * pformula option
   | BDH_split_or_case of pformula * pformula * pformula

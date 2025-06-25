@@ -16,9 +16,8 @@ val process_seq : pcodepos1 pair -> pstmt -> pformula doption -> backward
   S; c₁; c₂ ~ c₁'; c₂'; S : P ==> Q
     v}
     where [R₁] and [R₂] are provided manually (and equal if a single value was
-    provided), as well as [S]. Subgoals (c) and (d) are automatically deferred,
-    if possible. The predicate [={Q.1}] means equality on all free variables
-    bound to the first memory in [Q]. *)
+    provided), as well as [S]. The predicate [={Q.1}] means equality on all free
+    variables bound to the first memory in [Q]. *)
 
 val t_eager_seq : codepos1 pair -> EcAst.stmt -> form pair -> backward
 (** Internal variant of [eager seq] *)
@@ -39,7 +38,7 @@ val t_eager_if : backward
 (** Internal variant of [eager if] *)
 
 val process_while : pformula -> backward
-(** Tactic [eager-while] derives the following proof:
+(** Tactic [eager while] derives the following proof:
     {v
   (a) I => e{1} = e'{2}
   (b) S; c ~ c'; S : I /\ e{1} ==> I
@@ -98,10 +97,7 @@ val process_fun_abs : pformula -> backward
   S, A.f{o} ~ A.f(o'), S
     : I /\ ={glob A, A.f.params} ==> I /\ ={glob A, res}
     v}
-    Remark : ={glob A} is not required in pre condition when
-    A.f is an initializer
 *)
 
 val t_eager_fun_abs : form -> backward
 (** Internal variant of [eager call] (on abstract functions) *)
-
