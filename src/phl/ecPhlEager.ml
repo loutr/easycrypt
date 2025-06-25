@@ -36,8 +36,8 @@ let eq_on_sided_form env m1 m2 q =
     memories in predicate [q], as well as equality on all variables read from
     [c].
 
-    This is used to represent what is denoted [Eq] in the module documentation,
-    i.e. equality on all variables *)
+    This is used to implement what is denoted [Eq] in the module documentation,
+    i.e. equality on the whole memory. *)
 let eq_on_form_and_stmt env m1 m2 q c =
   s_read env c
   |> PV.union (PV.fv env m1 q)
@@ -52,11 +52,10 @@ let eq_on_fun env m1 m2 f =
   list_eq_to_form m1 m2 (l_pv, l_glob)
 
 (** Given a goal environment [tc] and a statement [s], if the goal is an
-equivalence of the shape {v s; c ~ c'; s v}, returns the same equivalence goal,
-as well as the terms c and c'.
+    equivalence of the shape [s; c ~ c'; s], returns the same equivalence goal,
+    as well as the terms c and c'.
 
-Yields an error if the statements are not of the right form.
-*)
+    Yields an error if the statements are not of the right form. *)
 let destruct_eager tc s =
   let env = FApi.tc1_env tc
   and es = tc1_as_equivS tc
@@ -82,9 +81,9 @@ let destruct_eager tc s =
           prefix (EcPrinting.pp_stmt ppe) (stmt err_stmt)
           (EcPrinting.pp_stmt ppe) s)
 
-(** Given a goal environment with a current goal of the shape
-    {v s; op ~ op'; s v}, returns the triplet (es, s, op, op'). Yields an
-    error if the goal doesn't have the right shape *)
+(** Given a goal environment with a current goal of the shape [s; op ~ op'; s],
+    returns the triplet [(es, s, op, op')]. Yields an error if the goal doesn't
+    have the right shape *)
 let destruct_on_op id_op tc =
   let env = FApi.tc1_env tc and es = tc1_as_equivS tc in
   let s =
@@ -118,12 +117,6 @@ let destruct_on_op id_op tc =
           Format.fprintf fmt
             "eager: no statements may %s the %s pivot statement." verb side)
 
-(** Ensure that a given proposition is a conjunction of same-name variables
-    equalities between two given memories.
-
-    This test is of course a bit conservative but should be sufficient for all
-    the use cases it covers *)
-
 let rec match_eq tc m1 m2 t1 t2 =
   match (t1.f_node, t2.f_node) with
   | Fpvar (p1, m1_), Fpvar (p2, m2_) ->
@@ -138,6 +131,11 @@ let rec match_eq tc m1 m2 t1 t2 =
         (EcPrinting.pp_form ppe) t1 (EcPrinting.pp_form ppe) t2;
       false
 
+(** Ensure that a given proposition is a conjunction of same-name variables
+    equalities between two given memories.
+
+    This test is of course a bit conservative but should be sufficient for all
+    the use cases it covers *)
 let rec ensure_eq_shape tc m1 m2 q =
   match q.f_node with
   | Fapp (_, [ q1; q2 ]) when is_and q ->
@@ -145,6 +143,7 @@ let rec ensure_eq_shape tc m1 m2 q =
   | Fapp (_, [ t1; t2 ]) when is_eq q -> match_eq tc m1 m2 t1 t2
   | _ -> is_true q
 
+(** Ensure the swapping statement [s] only interacts with global variables. *)
 let check_only_global pf env s =
   let sw = s_write env s
   and sr = s_read env s
@@ -154,7 +153,7 @@ let check_only_global pf env s =
       tc_error_lazy pf (fun fmt ->
           let ppe = EcPrinting.PPEnv.ofenv env in
           Format.fprintf fmt
-            "swapping statement should use only global variables: %a"
+            "eager: swapping statement may use only global variables: %a"
             (EcPrinting.pp_pv ppe) v)
   in
   PV.iter check_glob check_mp sw;
@@ -362,6 +361,8 @@ let t_eager_fun_def_r tc =
   FApi.xmutate1 tc `EagerFunDef [ cond ]
 
 (* -------------------------------------------------------------------- *)
+(* TOTHINK: [S] is not checked to be lossless here. This seems necessary however
+   in the proof in order to prove goals of the form [S : e = b ==> e = b v]. *)
 let t_eager_fun_abs_r i tc =
   let env, _, _ = FApi.tc1_eflat tc
   and eg = tc1_as_eagerF tc
@@ -369,7 +370,7 @@ let t_eager_fun_abs_r i tc =
   and mright' = EcMemory.abstract mright in
 
   if not (s_equal eg.eg_sl eg.eg_sr) then
-    tc_error !!tc "eager: Both swapping statements must be identical";
+    tc_error !!tc "eager: both swapping statements must be identical";
 
   if not (ensure_eq_shape tc mleft mright i) then
     tc_error !!tc
@@ -384,7 +385,7 @@ let t_eager_fun_abs_r i tc =
 
   let do_e og =
     let ef = destr_equivF og in
-    f_eagerF ef.ef_pr s ef.ef_fl ef.ef_fr s ef.ef_po (* (e) *)
+    f_eagerF ef.ef_pr s ef.ef_fl ef.ef_fr s ef.ef_po
   in
 
   let do_f og =
@@ -395,13 +396,13 @@ let t_eager_fun_abs_r i tc =
 
   let sg_e = List.map do_e sg_e and sg_f = List.map do_f sg_f in
 
-  (* Reorder goals to fit the description *)
+  (* Reorder per-oracle goals in order to align with the description *)
   let sg =
-    List.combine sg_f sg_g |> List.combine sg_e
+    List.combine sg_e (List.combine sg_f sg_g)
     |> List.concat_map (fun (x, (y, z)) -> [ x; y; z ])
-  and sI = f_equivS mleft' mright' i s s i in
+  and sg_d = f_equivS mleft' mright' i s s i in
 
-  let tactic tc = FApi.xmutate1 tc `EagerFunAbs (sI :: sg) in
+  let tactic tc = FApi.xmutate1 tc `EagerFunAbs (sg_d :: sg) in
 
   FApi.t_last tactic (EcPhlConseq.t_eagerF_conseq pre post tc)
 
@@ -422,8 +423,8 @@ let t_eager_call_r fpre fpost tc =
 
     if not (PV.is_empty diff) then
       tc_error_lazy !!tc (fun fmt ->
-          Format.fprintf fmt "eager call: the statement write %a" (PV.pp env)
-            diff)
+          Format.fprintf fmt "eager: swapping statement may not write to `%a`"
+            (PV.pp env) diff)
   in
 
   List.iter check_a argsl;
@@ -454,9 +455,9 @@ let t_eager_call = FApi.t_low2 "eager-call" t_eager_call_r
 (* -------------------------------------------------------------------- *)
 let process_seq (i, j) s factor tc =
   let open BatTuple.Tuple2 in
-  let mem_ty = tc |> FApi.tc1_goal |> destr_equivS |> fun x -> x.es_mr |> snd in
+  let mem_ty = FApi.tc1_goal tc |> destr_equivS |> fun x -> x.es_mr |> snd in
   let indices =
-    ((Some `Left, i), (Some `Right, j)) |> mapn (TTC.tc1_process_codepos1 tc)
+    mapn (TTC.tc1_process_codepos1 tc) ((Some `Left, i), (Some `Right, j))
   and factor =
     factor
     |> ( function Single p -> (p, p) | Double pp -> pp )
@@ -468,9 +469,14 @@ let process_seq (i, j) s factor tc =
 let process_if = t_eager_if
 
 let process_while inv tc =
+  (* This is performed here only to recover [e{1}] and setup
+     the consequence rule accordingly. *)
+  let es, _, w, _ = destruct_on_op `While tc in
+  let e, _ = destr_while w in
+  let e1 = form_of_expr (fst es.es_ml) e in
+
   let inv = TTC.tc1_process_prhl_form tc tbool inv in
-  (* FIXME: recover e{1} instead of [f_false] *)
-  (EcPhlConseq.t_equivS_conseq inv (f_and inv (f_not f_false))
+  (EcPhlConseq.t_equivS_conseq inv (f_and inv (f_not e1))
   @+ [ t_trivial; t_trivial; t_eager_while inv ])
     tc
 
