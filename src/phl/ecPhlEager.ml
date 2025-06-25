@@ -103,11 +103,7 @@ let destruct_on_op id_op tc =
 
   let es, c1, c2 = destruct_eager tc (stmt s) in
   match (c1.s_node, c2.s_node) with
-  | [ i1 ], [ i2 ] ->
-      let ppe = EcPrinting.PPEnv.ofenv env in
-      EcEnv.notify env `Warning "[left = %a] [right = %a]"
-        (EcPrinting.pp_instr ppe) i1 (EcPrinting.pp_instr ppe) i2;
-      (es, stmt s, i1, i2)
+  | [ i1 ], [ i2 ] -> (es, stmt s, i1, i2)
   | _, _ ->
       let verb, side =
         if List.length c1.s_node = 1 then ("precede", "right")
@@ -124,12 +120,7 @@ let rec match_eq tc m1 m2 t1 t2 =
   | Fglob (p1, m1_), Fglob (p2, m2_) ->
       ((m1 = m1_ && m2 = m2_) || (m1 = m2_ && m2 = m1_)) && p1 = p2
   | Ftuple l1, Ftuple l2 -> List.for_all2 (match_eq tc m1 m2) l1 l2
-  | _ ->
-      let env, _, _ = FApi.tc1_eflat tc in
-      let ppe = EcPrinting.PPEnv.ofenv env in
-      EcEnv.notify env `Warning "[left = %a] [right = %a]"
-        (EcPrinting.pp_form ppe) t1 (EcPrinting.pp_form ppe) t2;
-      false
+  | _ -> false
 
 (** Ensure that a given proposition is a conjunction of same-name variables
     equalities between two given memories.
