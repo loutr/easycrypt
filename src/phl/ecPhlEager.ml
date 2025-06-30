@@ -352,8 +352,6 @@ let t_eager_fun_def_r tc =
   FApi.xmutate1 tc `EagerFunDef [ cond ]
 
 (* -------------------------------------------------------------------- *)
-(* TOTHINK: [S] is not checked to be lossless here. This seems necessary however
-   in the proof in order to prove goals of the form [S : e = b ==> e = b v]. *)
 let t_eager_fun_abs_r i tc =
   let env, _, _ = FApi.tc1_eflat tc
   and eg = tc1_as_eagerF tc
