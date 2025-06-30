@@ -183,7 +183,7 @@ let t_eager_seq_r (i, j) s (r2, r1) tc =
     f_equivS_r
       {
         eC with
-        es_ml = eC.es_mr;
+        es_ml = (fst eC.es_ml, snd eC.es_mr);
         es_pr = eqMem1;
         es_sl = stmt c1';
         es_sr = stmt c1';
@@ -193,7 +193,7 @@ let t_eager_seq_r (i, j) s (r2, r1) tc =
     f_equivS_r
       {
         eC with
-        es_mr = eC.es_ml;
+        es_mr = (fst eC.es_mr, snd eC.es_ml);
         es_pr = r2;
         es_sl = stmt c2;
         es_sr = stmt c2;
