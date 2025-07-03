@@ -71,6 +71,28 @@ by rewrite /e double_half (@distrC (s N)) ler_dist_add.
 qed.
 
 (* -------------------------------------------------------------------- *)
+(* Integer diverging and monotonic functions for sequence sub-indexing *)
+
+op divergesI (f : int -> int) =
+  forall A, exists N, forall n, N <= n => A <= f n.
+
+op monotoneI (f : int -> int) =
+  forall n, 0 <= n => f n < f (n + 1).
+
+lemma monotoneIP (f : int -> int) :
+  monotoneI f => forall n m, 0 <= n <= m => f n <= f m.
+proof. by move => ? ?; elim/natind => /#. qed.
+
+lemma monotone_diverges f :
+  monotoneI f => divergesI f.
+proof.
+move=> ? A.
+have f_bound : forall n, 0 <= n => n + f 0 <= f n by elim => /#.
+exists (max (A - f 0) 0) => n n_bound.
+by apply (IntOrder.ler_trans (n + f 0)); smt().
+qed.
+
+(* -------------------------------------------------------------------- *)
 lemma eq_cnvto_from N s1 s2 l:
      (forall n, (N <= n)%Int => s1 n = s2 n)
   => convergeto s1 l => convergeto s2 l.
@@ -244,6 +266,15 @@ lemma cnvtoVn2 :
   convergeto (fun (n:int) => inv (n%r^2)) 0%r.
 proof. apply cnvtoV0 => x; exists (`|ceil x| + 1); smt(ler_eexpr ceil_ge). qed.
 
+lemma cnvtoSub f s x :
+  divergesI f => convergeto s x => convergeto (s \o f) x.
+proof.
+move=> divf cnv_s eps z_eps.
+have [ Ns ? ] := cnv_s eps z_eps.
+have [ Nf ? ] := divf Ns.
+by exists Nf => /#.
+qed.
+
 (* -------------------------------------------------------------------- *)
 lemma squeeze_cnvto (F1 F2 : int -> real) N (G : int -> real) l : 
   (forall (x:int), N <= x => F1 x <= G x <= F2 x) =>
@@ -368,6 +399,10 @@ proof.  by move=> h1 h2; rewrite cnvD // cnvN. qed.
 lemma cnv_pow p : -1%r < p < 1%r => converge (fun (n : int) => p ^ n).
 proof. by move=> ?; exists 0%r; apply cnvto_pow. qed.
 
+lemma cnvSub f s :
+  divergesI f => converge s => converge (s \o f).
+proof. by move => ? [ x ? ]; exists x; apply cnvtoSub. qed.
+
 (* -------------------------------------------------------------------- *)
 op lim (s : int -> real) =
   choiceb (fun l => convergeto s l) 0%r.
@@ -466,6 +501,15 @@ qed.
 
 lemma lim_pow p : -1%r < p < 1%r => lim (fun (n:int) => p ^ n) = 0%r.
 proof. by move=> h; apply/lim_cnvto/cnvto_pow. qed.
+
+lemma limSub f s :
+  divergesI f => converge s => lim s = lim (s \o f).
+proof. 
+move=> ? [ ? cnvs ].
+have /lim_cnvto -> := cnvs.
+by apply/eq_sym/lim_cnvto/cnvtoSub.
+qed.
+
 
 (* -------------------------------------------------------------------- *)
 lemma convergeto_sum
