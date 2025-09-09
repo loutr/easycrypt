@@ -65,8 +65,9 @@ let destruct_eager tc s =
   let z, c = s_split env (Zpr.cpos ss) c
   and c', z' = s_split env (Zpr.cpos (List.length c'.s_node - ss)) c' in
 
-  let z_eq_s = List.all2 i_equal z s.s_node
-  and z'_eq_s = List.all2 i_equal z' s.s_node in
+  let env, _, _ = FApi.tc1_eflat tc in
+  let z_eq_s = ER.EqTest.for_stmt env (stmt z) s
+  and z'_eq_s = ER.EqTest.for_stmt env (stmt z') s in
 
   if z_eq_s && z'_eq_s then (es, stmt c, stmt c')
   else
