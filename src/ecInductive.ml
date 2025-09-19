@@ -85,8 +85,9 @@ let datatype_ind_path (mode : indmode) (p : EcPath.path) =
 (* -------------------------------------------------------------------- *)
 exception NonPositive
 
-let indsc_of_datatype ?normty (mode : indmode) (dt : datatype) =
-  let normty = odfl (identity : ty -> ty) normty in
+let rec check_positivity tydecl_of_ctor dt = true
+
+let indsc_of_datatype ?(normty = identity) (mode : indmode) (dt : datatype) =
   let tpath  = dt.dt_path in
 
   let rec scheme1 p (pred, fac) ty =

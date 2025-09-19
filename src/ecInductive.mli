@@ -45,6 +45,11 @@ val datatype_proj_path : path -> symbol -> path
 (* -------------------------------------------------------------------- *)
 exception NonPositive
 
+(** Evaluates whether a given datatype protype satisfies the strict
+    positivity check. The first argument defines how to retrieve the
+    effective definition of a type constructor from its path. *)
+val check_positivity : (path -> tydecl) -> datatype -> bool
+
 val indsc_of_datatype : ?normty:(ty -> ty) -> [`Elim|`Case] -> datatype -> form
 
 val datatype_as_ty_dtype : datatype -> ty_params * ty_dtype
