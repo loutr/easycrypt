@@ -14,35 +14,42 @@ module PT = EcProofTerm
 module TTC = EcProofTyping
 
 (** Builds a formula that represents equality on the list of variables [l]
-    between two memories [m1] and [m2] *)
-let list_eq_to_form m1 m2 (l, l_glob) =
-  let to_form m = List.map (fun (pv, ty) -> f_pvar pv ty m) in
-  let to_form_glob m = List.map (fun x -> f_glob (EcPath.mget_ident x) m) in
-  f_eqs
-    (to_form m1 l @ to_form_glob m1 l_glob)
-    (to_form m2 l @ to_form_glob m2 l_glob)
+    between two memories [ml] and [mr] *)
+let list_eq_to_form ml mr (l, l_glob) =
+  let to_form m = List.map (fun (pv, ty) -> (f_pvar pv ty m).inv) in
+  let to_form_glob m =
+    List.map (fun x -> (f_glob (EcPath.mget_ident x) m).inv)
+  in
+  {
+    ml;
+    mr;
+    inv =
+      f_eqs
+        (to_form ml l @ to_form_glob ml l_glob)
+        (to_form mr l @ to_form_glob mr l_glob);
+  }
 
 (** Returns a formula that describes equality on all variables from one side of
     the memory present in the formula [q].
 
-    Example: If [q] is [(a{m1} \/ b{m3} /\ c{m1})], (with [m1] the first
-    argument, [m2] the second and [m3] another memory, distinct from [m1]) then
-    this function returns [(a{m1} = a{m2} /\ c{m1} = c{m2})]. The result of this
+    Example: If [q] is [(a{ml} \/ b{m'} /\ c{ml})], (with [ml] the first bound
+    memory, [mr] the second and [m'] another memory, distinct from [ml]) then
+    this function returns [(a{ml} = a{mr} /\ c{ml} = c{mr})]. The result of this
     operation is sometimes denoted [={q.m1}]. *)
-let eq_on_sided_form env m1 m2 q =
-  PV.fv env m1 q |> PV.elements |> list_eq_to_form m1 m2
+let eq_on_sided_form env { ml; mr; inv } =
+  PV.fv env ml inv |> PV.elements |> list_eq_to_form ml mr
 
 (** Returns a formula that describes equality on all variables from both
-    memories in predicate [q], as well as equality on all variables read from
+    memories in predicate [inv], as well as equality on all variables read from
     [c].
 
     This is used to implement what is denoted [Eq] in the module documentation,
     i.e. equality on the whole memory. *)
-let eq_on_form_and_stmt env m1 m2 q c =
+let eq_on_form_and_stmt env { ml; mr; inv } c =
   s_read env c
-  |> PV.union (PV.fv env m1 q)
-  |> PV.union (PV.fv env m2 q)
-  |> PV.elements |> list_eq_to_form m1 m2
+  |> PV.union (PV.fv env ml inv)
+  |> PV.union (PV.fv env mr inv)
+  |> PV.elements |> list_eq_to_form ml mr
 
 (** Equality on all variables from a function [f] *)
 let eq_on_fun env m1 m2 f =
@@ -157,144 +164,97 @@ let check_only_global pf env s =
 let t_eager_seq_r (i, j) s (r2, r1) tc =
   let env, _, _ = FApi.tc1_eflat tc and eC, c, c' = destruct_eager tc s in
 
-  let m1 = fst eC.es_ml
-  and m2 = fst eC.es_mr
-  and c1, c2 = s_split env i c
-  and c1', c2' = s_split env j c' in
-  let eqMem1 = eq_on_form_and_stmt env m1 m2 r1 (stmt c1')
-  and eqQ1 = eq_on_sided_form env m1 m2 eC.es_po in
+  let (_, ml_ty), (_, mr_ty) = (eC.es_ml, eC.es_mr) in
+  let c1, c2 = s_split env i c and c1', c2' = s_split env j c' in
+  let eqMem1 = eq_on_form_and_stmt env r1 (stmt c1')
+  and eqQ1 = eq_on_sided_form env (es_po eC) in
 
   let a =
-    f_equivS_r
-      {
-        eC with
-        es_sl = stmt (s.s_node @ c1);
-        es_sr = stmt (c1' @ s.s_node);
-        es_po = r2;
-      }
+    f_equivS ml_ty mr_ty (es_pr eC)
+      (stmt (s.s_node @ c1))
+      (stmt (c1' @ s.s_node))
+      r2
   and b =
-    f_equivS_r
-      {
-        eC with
-        es_pr = r1;
-        es_sl = stmt (s.s_node @ c2);
-        es_sr = stmt (c2' @ s.s_node);
-      }
-  and c =
-    f_equivS_r
-      {
-        eC with
-        es_ml = (fst eC.es_ml, snd eC.es_mr);
-        es_pr = eqMem1;
-        es_sl = stmt c1';
-        es_sr = stmt c1';
-        es_po = r1;
-      }
-  and d =
-    f_equivS_r
-      {
-        eC with
-        es_mr = (fst eC.es_mr, snd eC.es_ml);
-        es_pr = r2;
-        es_sl = stmt c2;
-        es_sr = stmt c2;
-        es_po = eqQ1;
-      }
-  in
+    f_equivS ml_ty mr_ty r1
+      (stmt (s.s_node @ c2))
+      (stmt (c2' @ s.s_node))
+      (es_po eC)
+  and c = f_equivS mr_ty mr_ty eqMem1 (stmt c1') (stmt c1') r1
+  and d = f_equivS ml_ty ml_ty r2 (stmt c2) (stmt c2) eqQ1 in
   FApi.xmutate1 tc `EagerSeq [ a; b; c; d ]
 
 (* -------------------------------------------------------------------- *)
 let t_eager_if_r tc =
-  let hyps = FApi.tc1_hyps tc and es, s, c, c' = destruct_on_op `If tc in
+  let es, s, c, c' = destruct_on_op `If tc in
   let e, c1, c2 = destr_if c and e', c1', c2' = destr_if c' in
 
-  let fel = form_of_expr (fst es.es_ml) e in
-  let fer = form_of_expr (fst es.es_mr) e' in
-  let fe = form_of_expr mhr e in
+  let { ml; mr; inv = pr_inv } = es_pr es in
+  let { es_ml = _, ml_ty; es_mr = _, mr_ty } = es in
 
-  let m2 = as_seq1 (LDecl.fresh_ids hyps [ "&m2" ]) in
-
+  let fe = (ss_inv_of_expr ml e).inv and fe' = (ss_inv_of_expr mr e').inv in
   let aT =
     f_forall
-      [ (mleft, GTmem (snd es.es_ml)); (mright, GTmem (snd es.es_mr)) ]
-      (f_imp es.es_pr (f_eq fel fer))
+      [ (ml, GTmem ml_ty); (mr, GTmem mr_ty) ]
+      (f_imp pr_inv (f_eq fe fe'))
   in
 
   let bT =
-    let bind m1 m2 s = Fsubst.f_bind_mem s m1 m2 and b = EcIdent.create "b1" in
-    let eqb = f_eq fe (f_local b tbool)
-    and p =
-      Fsubst.f_subst_id |> bind mleft mhr |> bind mright m2 |> fun s ->
-      Fsubst.f_subst s es.es_pr
-    in
-
-    f_forall
-      [ (m2, GTmem (snd es.es_mr)); (b, GTty tbool) ]
-      (f_hoareS (mhr, snd es.es_ml) (f_and p eqb) s eqb)
+    let b = EcIdent.create "b" in
+    let eqb = f_eq fe (f_local b tbool) in
+    let pre = { m = ml; inv = f_and pr_inv eqb } in
+    let post = { m = ml; inv = eqb } in
+    f_forall [ (mr, GTmem mr_ty); (b, GTty tbool) ] (f_hoareS ml_ty pre s post)
   in
 
   let cT =
-    let pre = f_and es.es_pr (f_eq fel f_true) in
+    let pre = { ml; mr; inv = f_and pr_inv (f_eq fe f_true) } in
     let st = stmt (s.s_node @ c1.s_node) in
     let st' = stmt (c1'.s_node @ s.s_node) in
-    f_equivS es.es_ml es.es_mr pre st st' es.es_po
+    f_equivS ml_ty mr_ty pre st st' (es_po es)
   in
 
   let dT =
-    let pre = f_and es.es_pr (f_eq fel f_false) in
+    let pre = { ml; mr; inv = f_and pr_inv (f_eq fe f_false) } in
     let st = stmt (s.s_node @ c2.s_node) in
     let st' = stmt (c2'.s_node @ s.s_node) in
-    f_equivS es.es_ml es.es_mr pre st st' es.es_po
+    f_equivS ml_ty mr_ty pre st st' (es_po es)
   in
 
   FApi.xmutate1 tc `EagerIf [ aT; bT; cT; dT ]
 
 (* -------------------------------------------------------------------- *)
 let t_eager_while_r i tc =
-  let env, hyps, _ = FApi.tc1_eflat tc in
+  let env, _, _ = FApi.tc1_eflat tc in
 
   let es, s, w, w' = destruct_on_op `While tc in
-  let e, c = destr_while w and e', c' = destr_while w' in
+  let e, c = destr_while w and _, c' = destr_while w' in
 
-  let m1 = fst es.es_ml and m2 = fst es.es_mr in
-  let eqMem1 = eq_on_form_and_stmt env m1 m2 i c'
-  and eqI = eq_on_sided_form env m1 m2 i in
+  let { ml; mr; inv = pr_inv } = es_pr es in
+  let { es_ml = _, ml_ty; es_mr = _, mr_ty } = es in
 
-  let e1 = form_of_expr (fst es.es_ml) e in
-  let e2 = form_of_expr (fst es.es_mr) e' in
-  let fe = form_of_expr mhr e in
+  let eqMem1 = eq_on_form_and_stmt env i c' and eqI = eq_on_sided_form env i in
 
-  let m2 = as_seq1 (LDecl.fresh_ids hyps [ "&m2" ]) in
+  let el = ss_inv_of_expr ml e and er = ss_inv_of_expr mr e in
 
   let aT =
-    f_forall
-      [ (mleft, GTmem (snd es.es_ml)); (mright, GTmem (snd es.es_mr)) ]
-      (f_imp i (f_eq e1 e2))
+    let and_ = f_and_simpl (f_eq el.inv er.inv) eqI.inv in
+    f_forall [ (ml, GTmem ml_ty); (mr, GTmem mr_ty) ] (f_imp i.inv and_)
   and bT =
-    f_equivS_r
-      {
-        es with
-        es_pr = f_and_simpl i e1;
-        es_sl = stmt (s.s_node @ c.s_node);
-        es_sr = stmt (c'.s_node @ s.s_node);
-        es_po = i;
-      }
+    let pre = { ml; mr; inv = f_and i.inv el.inv } in
+    f_equivS ml_ty mr_ty pre
+      (stmt (s.s_node @ c.s_node))
+      (stmt (c'.s_node @ s.s_node))
+      i
   and cT =
-    let bind m1 m2 s = Fsubst.f_bind_mem s m1 m2 and b = EcIdent.create "b1" in
-    let eqb = f_eq fe (f_local b tbool)
-    and p =
-      Fsubst.f_subst_id |> bind mleft mhr |> bind mright m2 |> fun s ->
-      Fsubst.f_subst s es.es_pr
-    in
-    f_forall
-      [ (m2, GTmem (snd es.es_mr)); (b, GTty tbool) ]
-      (f_hoareS (mhr, snd es.es_ml) (f_and p eqb) s eqb)
-  and dT =
-    f_equivS_r { es with es_pr = eqMem1; es_sl = c'; es_sr = c'; es_po = i }
-  and eT = f_equivS_r { es with es_pr = i; es_sl = c; es_sr = c; es_po = eqI }
+    let b = EcIdent.create "b" in
+    let eqb = f_eq el.inv (f_local b tbool) in
+    let pre = { m = ml; inv = f_and pr_inv eqb } in
+    let post = { m = ml; inv = eqb } in
+    f_forall [ (mr, GTmem mr_ty); (b, GTty tbool) ] (f_hoareS ml_ty pre s post)
+  and dT = f_equivS ml_ty mr_ty eqMem1 c' c' i
+  and eT = f_equivS ml_ty mr_ty i c c i
   and fT =
-    f_equivS_r
-      { es with es_pr = f_and i (f_not e1); es_sl = s; es_sr = s; es_po = i }
+    f_equivS ml_ty mr_ty { ml; mr; inv = f_and i.inv (f_not el.inv) } s s i
   in
 
   FApi.xmutate1 tc `EagerWhile [ aT; bT; cT; dT; eT; fT ]
@@ -310,7 +270,7 @@ let t_eager_fun_def_r tc =
   EcPhlFun.check_concrete !!tc env fr;
 
   let memenvl, (fsigl, fdefl), memenvr, (fsigr, fdefr), env =
-    Fun.equivS fl fr env
+    Fun.equivS eg.eg_ml eg.eg_mr fl fr env
   in
 
   let extend mem fdef =
@@ -321,7 +281,7 @@ let t_eager_fun_def_r tc =
         let mem, s = EcMemory.bind_fresh v mem in
         (* oget cannot fail — Some in, Some out *)
         let x = EcTypes.pv_loc (oget s.ov_name) in
-        ( f_pvar x e.e_ty (fst mem),
+        ( (f_pvar x e.e_ty (fst mem)).inv,
           mem,
           s_seq fdef.f_body (stmt [ i_asgn (LvVar (x, e.e_ty), e) ]) )
   in
@@ -332,37 +292,27 @@ let t_eager_fun_def_r tc =
   let s = PVM.empty in
   let s = PVM.add env pv_res ml el s in
   let s = PVM.add env pv_res mr er s in
-  let post = PVM.subst env s eg.eg_po in
+  let post = map_ts_inv1 (PVM.subst env s) (eg_po eg) in
   let s = PVM.empty in
   let s = EcPhlFun.subst_pre env fsigl ml s in
   let s = EcPhlFun.subst_pre env fsigr mr s in
-  let pre = PVM.subst env s eg.eg_pr in
+  let pre = map_ts_inv1 (PVM.subst env s) (eg_pr eg) in
 
   let cond =
-    f_equivS_r
-      {
-        es_ml = meml;
-        es_mr = memr;
-        es_sl = s_seq eg.eg_sl sfl;
-        es_sr = s_seq sfr eg.eg_sr;
-        es_pr = pre;
-        es_po = post;
-      }
+    f_equivS (snd meml) (snd memr) pre (s_seq eg.eg_sl sfl) (s_seq sfr eg.eg_sr)
+      post
   in
 
   FApi.xmutate1 tc `EagerFunDef [ cond ]
 
 (* -------------------------------------------------------------------- *)
 let t_eager_fun_abs_r i tc =
-  let env, _, _ = FApi.tc1_eflat tc
-  and eg = tc1_as_eagerF tc
-  and mleft' = EcMemory.abstract mleft
-  and mright' = EcMemory.abstract mright in
+  let env, _, _ = FApi.tc1_eflat tc and eg = tc1_as_eagerF tc in
 
   if not (s_equal eg.eg_sl eg.eg_sr) then
     tc_error !!tc "eager: both swapping statements must be identical";
 
-  if not (ensure_eq_shape tc mleft mright i) then
+  if not (ensure_eq_shape tc i.ml i.mr i.inv) then
     tc_error !!tc
       "eager: the invariant must be a conjunction of same-name variable \
        equalities";
@@ -375,13 +325,14 @@ let t_eager_fun_abs_r i tc =
 
   let do_e og =
     let ef = destr_equivF og in
-    f_eagerF ef.ef_pr s ef.ef_fl ef.ef_fr s ef.ef_po
+    f_eagerF (ef_pr ef) s ef.ef_fl ef.ef_fr s (ef_po ef)
   in
 
   let do_f og =
     let ef = destr_equivF og in
-    let eqMem = eq_on_fun env mleft mright ef.ef_fr in
-    f_equivF (f_and eqMem ef.ef_pr) ef.ef_fl ef.ef_fl ef.ef_po
+
+    let eqMem = eq_on_fun env i.ml i.mr ef.ef_fr in
+    f_equivF (map_ts_inv2 f_and eqMem (ef_pr ef)) ef.ef_fl ef.ef_fl (ef_po ef)
   in
 
   let sg_e = List.map do_e sg_e and sg_f = List.map do_f sg_f in
@@ -390,7 +341,7 @@ let t_eager_fun_abs_r i tc =
   let sg =
     List.combine sg_e (List.combine sg_f sg_g)
     |> List.concat_map (fun (x, (y, z)) -> [ x; y; z ])
-  and sg_d = f_equivS mleft' mright' i s s i in
+  and sg_d = f_equivS EcMemory.abstract_mt EcMemory.abstract_mt i s s i in
 
   let tactic tc = FApi.xmutate1 tc `EagerFunAbs (sg_d :: sg) in
 
@@ -400,6 +351,8 @@ let t_eager_fun_abs_r i tc =
 let t_eager_call_r fpre fpost tc =
   let env, hyps, _ = FApi.tc1_eflat tc in
   let es = tc1_as_equivS tc in
+  let fpre = EcSubst.ts_inv_rebind fpre (fst es.es_ml) (fst es.es_mr) in
+  let fpost = EcSubst.ts_inv_rebind fpost (fst es.es_ml) (fst es.es_mr) in
 
   let (lvl, fl, argsl), sl = pf_last_call !!tc es.es_sl in
   let (lvr, fr, argsr), sr = pf_first_call !!tc es.es_sr in
@@ -419,17 +372,15 @@ let t_eager_call_r fpre fpost tc =
 
   List.iter check_a argsl;
 
-  let ml = EcMemory.memory es.es_ml in
-  let mr = EcMemory.memory es.es_mr in
   let modil = PV.union (f_write env fl) swl in
   let modir = PV.union (f_write env fr) swr in
   let post =
     EcPhlCall.wp2_call env fpre fpost (lvl, fl, argsl) modil (lvr, fr, argsr)
-      modir ml mr es.es_po hyps
+      modir (es_po es) hyps
   in
   let f_concl = f_eagerF fpre sl fl fr sr fpost in
   let concl =
-    f_equivS_r { es with es_sl = stmt []; es_sr = stmt []; es_po = post }
+    f_equivS (snd es.es_ml) (snd es.es_mr) (es_pr es) (stmt []) (stmt []) post
   in
 
   FApi.xmutate1 tc `EagerCall [ f_concl; concl ]
@@ -445,14 +396,13 @@ let t_eager_call = FApi.t_low2 "eager-call" t_eager_call_r
 (* -------------------------------------------------------------------- *)
 let process_seq (i, j) s factor tc =
   let open BatTuple.Tuple2 in
-  let mem_ty = FApi.tc1_goal tc |> destr_equivS |> fun x -> x.es_mr |> snd in
   let indices =
     mapn (TTC.tc1_process_codepos1 tc) ((Some `Left, i), (Some `Right, j))
   and factor =
     factor
     |> ( function Single p -> (p, p) | Double pp -> pp )
     |> mapn (TTC.tc1_process_prhl_form tc tbool)
-  and s = TTC.tc1_process_stmt tc mem_ty s in
+  and s = TTC.tc1_process_prhl_stmt tc `Left s in
 
   t_eager_seq indices s factor tc
 
@@ -461,22 +411,25 @@ let process_if = t_eager_if
 let process_while inv tc =
   (* This is performed here only to recover [e{1}] and setup
      the consequence rule accordingly. *)
+  (* TODO: also check that e2 is syntactically the same *)
   let es, _, w, _ = destruct_on_op `While tc in
   let e, _ = destr_while w in
-  let e1 = form_of_expr (fst es.es_ml) e in
+  let e1 = ss_inv_of_expr (fst es.es_ml) e in
 
   let inv = TTC.tc1_process_prhl_form tc tbool inv in
-  (EcPhlConseq.t_equivS_conseq inv (f_and inv (f_not e1))
+  (EcPhlConseq.t_equivS_conseq inv
+     { inv with inv = f_and inv.inv (f_not e1.inv) }
   @+ [ t_trivial; t_trivial; t_eager_while inv ])
     tc
 
 let process_fun_def tc = t_eager_fun_def tc
 
-let process_fun_abs i tc =
-  let mleft, mright = (Fun.inv_memory `Left, Fun.inv_memory `Right) in
-  let hyps = LDecl.push_all [ mleft; mright ] (FApi.tc1_hyps tc) in
-  let i = TTC.pf_process_formula !!tc hyps i in
-  t_eager_fun_abs i tc
+let process_fun_abs inv tc =
+  let hyps = FApi.tc1_hyps tc in
+  let { eg_ml = ml; eg_mr = mr } = tc1_as_eagerF tc in
+  let env = LDecl.inv_memenv ml mr hyps in
+  let inv = TTC.pf_process_formula !!tc env inv in
+  t_eager_fun_abs { ml; mr; inv } tc
 
 let process_call info tc =
   let process_cut' fpre fpost =
@@ -489,10 +442,11 @@ let process_call info tc =
     check_only_global !!tc env sl;
     check_only_global !!tc env sr;
 
-    let penv, qenv = LDecl.equivF fl fr hyps in
-    let fpre = TTC.pf_process_form !!tc penv tbool fpre in
-    let fpost = TTC.pf_process_form !!tc qenv tbool fpost in
-    f_eagerF fpre sl fl fr sr fpost
+    let ml, mr = (fst es.es_ml, fst es.es_mr) in
+    let penv, qenv = LDecl.equivF ml mr fl fr hyps in
+    let fpre = TTC.pf_process_formula !!tc penv fpre in
+    let fpost = TTC.pf_process_formula !!tc qenv fpost in
+    f_eagerF { ml; mr; inv = fpre } sl fl fr sr { ml; mr; inv = fpost }
   in
   let process_cut = function
     | EcParsetree.CI_spec (fpre, fpost) -> process_cut' fpre fpost
@@ -506,6 +460,6 @@ let process_call info tc =
   let eg = pf_as_eagerF !!tc ax in
 
   FApi.t_on1seq 0
-    (t_eager_call eg.eg_pr eg.eg_po)
+    (t_eager_call (eg_pr eg) (eg_po eg))
     (EcLowGoal.Apply.t_apply_bwd_hi ~dpe:true pt)
     tc

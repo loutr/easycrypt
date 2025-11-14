@@ -1,7 +1,7 @@
 (* -------------------------------------------------------------------- *)
+open EcAst
 open EcUtils
 open EcParsetree
-open EcFol
 open EcCoreGoal.FApi
 open EcMatching.Position
 
@@ -19,16 +19,16 @@ val process_seq : pcodepos1 pair -> pstmt -> pformula doption -> backward
     provided), as well as [S]. The predicate [={Q.1}] means equality on all free
     variables bound to the first memory in [Q]. *)
 
-val t_eager_seq : codepos1 pair -> EcAst.stmt -> form pair -> backward
+val t_eager_seq : codepos1 pair -> stmt -> ts_inv pair -> backward
 (** Internal variant of [eager seq] *)
 
 val process_if : backward
 (** Tactic [eager if] derives the following proof:
     {v
-  (a) P => e{1} = e'{2}
-  (b) S; c₁ ~ c₁'; S : P /\ e{1} ==> Q
-  (c) S; c₂ ~ c₂'; S : P /\ !e{1} ==> Q
-  (d) forall b &2, S  : P /\ e = b ==> e = b
+  (a) forall &1 &2, P => e{1} = e'{2}
+  (b) forall &2 b, S : P /\ e = b ==> e = b
+  (c) S; c₁ ~ c₁'; S : P /\ e{1} ==> Q
+  (d) S; c₂ ~ c₂'; S : P /\ !e{1} ==> Q
  --------------------------------------------
   S; if e then c₁ else c₂
    ~ if e' then c₁' else c₂'; S : P ==> Q
@@ -40,18 +40,18 @@ val t_eager_if : backward
 val process_while : pformula -> backward
 (** Tactic [eager while] derives the following proof:
     {v
-  (a) I => e{1} = e'{2}
+  (a) I => ={e, I.1}
   (b) S; c ~ c'; S : I /\ e{1} ==> I
   (c) forall b &2, S : e = b ==> e = b
   (d) c' ~ c' : Eq ==> I
-  (e) c ~ c : I ==> ={I.1}
+  (e) c ~ c : I ==> I
   (f) S ~ S : I /\ !e{1} ==> I
  --------------------------------------------------------
-  S; while e do c ~ while e' do c'; S : I ==> I /\ !e{1}
+  S; while e do c ~ while e do c'; S : I ==> I /\ !e{1}
     v}
     Where the invariant [I] is manually provided. *)
 
-val t_eager_while : form -> backward
+val t_eager_while : ts_inv -> backward
 (** Internal variant of [eager while] *)
 
 val process_fun_def : backward
@@ -76,12 +76,11 @@ val process_call : call_info gppterm -> backward
    S; x = f(a) ~ x' = f'(a'); S : wp_call fpre fpost post ==> post
     v} *)
 
-val t_eager_call : form -> form -> backward
+val t_eager_call : ts_inv -> ts_inv -> backward
 (** Internal variant of [eager call] *)
 
 val process_fun_abs : pformula -> backward
-(** Tactic [eager call] (on abstract functions) derives the
-    following proof:
+(** Tactic [eager call] (on abstract functions) derives the following proof:
     {v
   (0) S depends only on globals (typing invariant)
   (a) I is a conjunction of same-name variable equalities
@@ -96,8 +95,7 @@ val process_fun_abs : pformula -> backward
  --------------------------------------------------------
   S, A.f{o} ~ A.f(o'), S
     : I /\ ={glob A, A.f.params} ==> I /\ ={glob A, res}
-    v}
-*)
+    v} *)
 
-val t_eager_fun_abs : form -> backward
+val t_eager_fun_abs : ts_inv -> backward
 (** Internal variant of [eager call] (on abstract functions) *)
