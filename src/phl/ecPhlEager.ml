@@ -227,11 +227,19 @@ let t_eager_while_r i tc =
   let env, _, _ = FApi.tc1_eflat tc in
 
   let es, s, w, w' = destruct_on_op `While tc in
-  let e, c = destr_while w and _, c' = destr_while w' in
+  let e, c = destr_while w and _e, c' = destr_while w' in
 
   let { ml; mr; inv = pr_inv } = es_pr es in
   let { es_ml = _, ml_ty; es_mr = _, mr_ty } = es in
 
+  let sub_to_left_mem = 
+    let open EcSubst in
+    subst_expr (add_memory empty mr ml)
+  in
+
+  if (not (e_equal e (sub_to_left_mem _e))) then
+    tc_error !!tc "eager: both while guards must be syntactically equal";
+  
   let eqMem1 = eq_on_form_and_stmt env i c' and eqI = eq_on_sided_form env i in
 
   let el = ss_inv_of_expr ml e and er = ss_inv_of_expr mr e in
@@ -411,7 +419,6 @@ let process_if = t_eager_if
 let process_while inv tc =
   (* This is performed here only to recover [e{1}] and setup
      the consequence rule accordingly. *)
-  (* TODO: also check that e2 is syntactically the same *)
   let es, _, w, _ = destruct_on_op `While tc in
   let e, _ = destr_while w in
   let e1 = ss_inv_of_expr (fst es.es_ml) e in

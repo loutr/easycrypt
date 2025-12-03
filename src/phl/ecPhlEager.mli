@@ -49,7 +49,9 @@ val process_while : pformula -> backward
  --------------------------------------------------------
   S; while e do c ~ while e do c'; S : I ==> I /\ !e{1}
     v}
-    Where the invariant [I] is manually provided. *)
+    Where the invariant [I] is manually provided.
+    Please note that the guard [e] is syntactically identical in both
+    programs. *)
 
 val t_eager_while : ts_inv -> backward
 (** Internal variant of [eager while] *)
